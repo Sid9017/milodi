@@ -1,5 +1,5 @@
 /**
- * Melomidi Web UI — 上传、播放、音游音谱、导出
+ * Milodi Web UI — 上传、播放、音游音谱、导出
  */
 
 const $ = (sel) => document.querySelector(sel);
@@ -621,7 +621,7 @@ async function handleFile(file) {
     try {
       data = await res.json();
     } catch {
-      throw new Error("服务器响应异常，请确认 Web 服务已启动（melomidi-web）");
+      throw new Error("服务器响应异常，请确认 Web 服务已启动（milodi-web）");
     }
     if (!res.ok) throw new Error(data.error || "分析失败");
 
@@ -656,7 +656,7 @@ async function handleFile(file) {
     if (err.name === "AbortError") {
       msg = "分析超时，请换较短的音频或稍后重试";
     } else if (err instanceof TypeError) {
-      msg = "无法连接服务器，请先运行：.venv/bin/python -m melomidi.web.app";
+      msg = "无法连接服务器，请先运行：.venv/bin/python -m milodi.web.app";
     }
     showError(msg);
     uploadZone.querySelector(".upload-zone__inner").style.visibility = "visible";

@@ -7,8 +7,8 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from melomidi.export import write_export
-from melomidi.extract import (
+from milodi.export import write_export
+from milodi.extract import (
     DEFAULT_CONFIG,
     INSTRUMENTAL_CONFIG,
     PIANO_CONFIG,
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output", help="输出文件路径")
     parser.add_argument("--start-ms", type=int, default=0, help="导出区间起点 (ms)")
     parser.add_argument("--end-ms", type=int, default=None, help="导出区间终点 (ms)")
-    parser.add_argument("play_target", nargs="?", help="melomidi play <file>")
+    parser.add_argument("play_target", nargs="?", help="milodi play <file>")
     parser.add_argument(
         "--onset-threshold", type=float, default=0.55, help="Basic Pitch onset 阈值 (0–1)"
     )
@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"已写入 {out}", file=sys.stderr)
     elif args.format in {"h300", "h300-detail"}:
-        from melomidi.export import to_h300_detail, to_h300_hex
+        from milodi.export import to_h300_detail, to_h300_hex
 
         if args.format == "h300-detail":
             print(to_h300_detail(notes, start_ms=args.start_ms, end_ms=args.end_ms))
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.play or (args.play_target and audio):
         try:
-            from melomidi.playback import play_melody
+            from milodi.playback import play_melody
 
             play_melody(notes)
         except ImportError:

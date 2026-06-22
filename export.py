@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pretty_midi
 
-from melomidi.extract import MelodyNote
-from melomidi.h300 import clip_notes_to_segment, notes_to_h300_pairs, pairs_to_hex, pairs_to_lines
+from milodi.extract import MelodyNote
+from milodi.h300 import clip_notes_to_segment, notes_to_h300_pairs, pairs_to_hex, pairs_to_lines
 
 
 def to_json(notes: list[MelodyNote], indent: int = 2) -> str:

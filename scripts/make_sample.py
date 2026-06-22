@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generate a simple monophonic WAV for testing melomidi."""
+"""Generate a simple monophonic WAV for testing milodi."""
 
 import math
 import wave
 from pathlib import Path
 
 SAMPLE_RATE = 22050
-OUT_PATH = Path("/tmp/melomidi_sample.wav")
+OUT_PATH = Path("/tmp/milodi_sample.wav")
 
 # Twinkle twinkle little star (C major), (midi, beats)
 SCORE = [

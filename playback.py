@@ -7,7 +7,7 @@ import time
 import numpy as np
 import sounddevice as sd
 
-from melomidi.extract import MelodyNote
+from milodi.extract import MelodyNote
 
 SAMPLE_RATE = 22050
 

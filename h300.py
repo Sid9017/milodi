@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from melomidi.extract import MelodyNote
+from milodi.extract import MelodyNote
 
 BEEP_NOTE_REST = 0xFF
 BEEP_NOTE_MIDI_LO = 48  # C3

@@ -10,7 +10,7 @@ from typing import Any, Literal
 import numpy as np
 from basic_pitch.inference import predict
 
-from melomidi.notes import BuzzerNote, midi_to_hz, midi_to_name, snap_midi
+from milodi.notes import BuzzerNote, midi_to_hz, midi_to_name, snap_midi
 
 NoteEvent = tuple[float, float, int, float, list | None]
 
@@ -98,7 +98,7 @@ def _predict_notes(
     tmp_path: Path | None = None
 
     if cfg.preprocess:
-        from melomidi.preprocess import prepare_instrumental
+        from milodi.preprocess import prepare_instrumental
 
         tmp_path = prepare_instrumental(analysis_path)
         analysis_path = tmp_path

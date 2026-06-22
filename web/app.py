@@ -1,4 +1,4 @@
-"""Melomidi Web UI 服务。"""
+"""Milodi Web UI 服务。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from melomidi.export import to_h300_detail, to_h300_hex
-from melomidi.extract import (
+from milodi.export import to_h300_detail, to_h300_hex
+from milodi.extract import (
     INSTRUMENTAL_CONFIG,
     PIANO_CONFIG,
     MelodyNote,
@@ -125,11 +125,11 @@ def export():
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="启动 Melomidi Web UI")
+    parser = argparse.ArgumentParser(description="启动 Milodi Web UI")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
-    print(f"Melomidi Web UI: http://{args.host}:{args.port}")
+    print(f"Milodi Web UI: http://{args.host}:{args.port}")
     app.run(host=args.host, port=args.port, debug=False)
 
 
