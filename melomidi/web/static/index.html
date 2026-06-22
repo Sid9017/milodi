@@ -84,6 +84,23 @@
         <span class="export-range__hint">在音谱上拖拽框选 · 未选则导出全部</span>
       </div>
 
+      <div class="skyline-ctrl" id="skylineCtrl" hidden>
+        <div class="skyline-ctrl__head">
+          <label class="skyline-ctrl__label" for="skylineMinBar">主旋律短音过滤</label>
+          <span class="skyline-ctrl__value" id="skylineMinValue">200 ms</span>
+        </div>
+        <input
+          type="range"
+          id="skylineMinBar"
+          class="skyline-ctrl__bar"
+          min="100"
+          max="3000"
+          step="10"
+          value="200"
+        />
+        <p class="skyline-ctrl__hint">MIDI 试听专用 · 短于此值的音会并入主旋律（100–3000 ms）</p>
+      </div>
+
       <div class="controls">
         <button class="btn btn--play" id="playBtn" title="播放 / 暂停">
           <svg class="icon-play" viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>

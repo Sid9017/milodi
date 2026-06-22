@@ -28,6 +28,9 @@ const chartSelection = $("#chartSelection");
 const exportRangeEl = $("#exportRange");
 const exportRangeLabel = $("#exportRangeLabel");
 const exportRangeClear = $("#exportRangeClear");
+const skylineCtrl = $("#skylineCtrl");
+const skylineMinBar = $("#skylineMinBar");
+const skylineMinValue = $("#skylineMinValue");
 
 const HIT_LINE_X = 100;
 const PX_PER_MS = 0.12;
@@ -53,6 +56,155 @@ let state = {
 let dragSelect = null;
 
 const ctx = chartCanvas.getContext("2d");
+
+/** 仅 MIDI 试听：同时刻取最高音（skyline 主旋律），音谱仍显示原多声部。 */
+function noteHz(n) {
+  if (n.hz > 0) return n.hz;
+  return 440 * Math.pow(2, (n.midi - 69) / 12);
+}
+
+function highestNoteMelodyForPlayback(notes) {
+  if (!notes.length) return [];
+
+  const bounds = new Set();
+  for (const n of notes) {
+    bounds.add(n.start_ms);
+    bounds.add(n.start_ms + n.duration_ms);
+  }
+  const times = [...bounds].sort((a, b) => a - b);
+  const merged = [];
+
+  for (let i = 0; i < times.length - 1; i++) {
+    const t0 = times[i];
+    const t1 = times[i + 1];
+    const dur = t1 - t0;
+    if (dur < 1) continue;
+
+    const active = notes.filter(
+      (n) => n.start_ms < t1 && n.start_ms + n.duration_ms > t0,
+    );
+    if (!active.length) continue;
+
+    const top = active.reduce(
+      (best, n) => (n.midi > best.midi ? n : best),
+      active[0],
+    );
+
+    const prev = merged[merged.length - 1];
+    if (prev && prev.midi === top.midi && prev.start_ms + prev.duration_ms === t0) {
+      prev.duration_ms += dur;
+      prev.velocity = Math.max(prev.velocity, top.velocity ?? 100);
+    } else {
+      merged.push({
+        start_ms: t0,
+        duration_ms: dur,
+        midi: top.midi,
+        hz: Math.round(noteHz(top)),
+        velocity: top.velocity ?? 100,
+        name: top.name,
+      });
+    }
+  }
+
+  return merged;
+}
+
+const SKYLINE_MERGE_GAP_MS = 50;
+
+function getSkylineMinMs() {
+  return Number(skylineMinBar?.value) || 200;
+}
+
+function updateSkylineMinLabel() {
+  if (skylineMinValue) {
+    skylineMinValue.textContent = `${getSkylineMinMs()} ms`;
+  }
+}
+
+function bridgeShortSpikes(segs, minMs) {
+  if (segs.length < 3) return segs;
+  const out = [];
+  let i = 0;
+  while (i < segs.length) {
+    const a = segs[i];
+    const b = segs[i + 1];
+    const c = segs[i + 2];
+    if (
+      b &&
+      c &&
+      a.midi === c.midi &&
+      b.duration_ms < minMs &&
+      b.midi !== a.midi
+    ) {
+      const end = c.start_ms + c.duration_ms;
+      out.push({
+        ...a,
+        duration_ms: end - a.start_ms,
+        velocity: Math.max(a.velocity, c.velocity),
+      });
+      i += 3;
+    } else {
+      out.push({ ...a });
+      i += 1;
+    }
+  }
+  return out;
+}
+
+function absorbShortIntoPrev(segs, minMs) {
+  if (!segs.length) return segs;
+  let work = segs.map((s) => ({ ...s }));
+
+  if (work.length >= 2 && work[0].duration_ms < minMs) {
+    const head = work.shift();
+    work[0].start_ms = head.start_ms;
+    work[0].duration_ms =
+      work[0].start_ms + work[0].duration_ms - head.start_ms;
+    work[0].velocity = Math.max(head.velocity, work[0].velocity);
+  }
+
+  const out = [];
+  for (const s of work) {
+    if (s.duration_ms >= minMs || !out.length) {
+      out.push(s);
+      continue;
+    }
+    const prev = out[out.length - 1];
+    prev.duration_ms = s.start_ms + s.duration_ms - prev.start_ms;
+    prev.velocity = Math.max(prev.velocity, s.velocity);
+  }
+  return out;
+}
+
+function mergeAdjacentMelody(segs, gapMs) {
+  if (!segs.length) return segs;
+  const out = [{ ...segs[0] }];
+  for (let i = 1; i < segs.length; i++) {
+    const s = segs[i];
+    const prev = out[out.length - 1];
+    const gap = s.start_ms - (prev.start_ms + prev.duration_ms);
+    if (s.midi === prev.midi && gap <= gapMs) {
+      prev.duration_ms = s.start_ms + s.duration_ms - prev.start_ms;
+      prev.velocity = Math.max(prev.velocity, s.velocity);
+    } else {
+      out.push({ ...s });
+    }
+  }
+  return out;
+}
+
+function refineSkylineMelody(segments) {
+  if (!segments.length) return segments;
+  const minMs = getSkylineMinMs();
+  let segs = bridgeShortSpikes(segments, minMs);
+  segs = absorbShortIntoPrev(segs, minMs);
+  segs = mergeAdjacentMelody(segs, SKYLINE_MERGE_GAP_MS);
+  return segs;
+}
+
+function melodyForPlayback(notes) {
+  return refineSkylineMelody(highestNoteMelodyForPlayback(notes));
+}
 
 /* ── MIDI 合成播放器（Web Audio API） ── */
 
@@ -138,7 +290,7 @@ class MidiSynthPlayer {
     this.offsetMs = fromMs ?? this.offsetMs;
     this.wallStart = performance.now();
     this.playing = true;
-    this._scheduleNotes(notes, this.offsetMs);
+    this._scheduleNotes(melodyForPlayback(notes), this.offsetMs);
   }
 
   pause() {
@@ -493,6 +645,8 @@ async function handleFile(file) {
     playerPanel.hidden = false;
     stats.hidden = false;
     exportRangeEl.hidden = false;
+    skylineCtrl.hidden = false;
+    updateSkylineMinLabel();
     clearExportRange();
 
     resizeCanvas();
@@ -678,6 +832,14 @@ exportMenu.addEventListener("click", async (e) => {
 
 exportRangeClear.addEventListener("click", clearExportRange);
 
+skylineMinBar.addEventListener("input", () => {
+  updateSkylineMinLabel();
+  if (state.playMode === "midi" && state.playing && state.notes.length) {
+    const t = getCurrentTimeMs();
+    midiPlayer.play(state.notes, t);
+  }
+});
+
 chartCanvas.addEventListener("mousedown", (e) => {
   if (e.button !== 0 || playerPanel.hidden) return;
   const rect = chartCanvas.getBoundingClientRect();
@@ -743,5 +905,6 @@ window.addEventListener("resize", () => {
 });
 
 buildLaneLabels();
+updateSkylineMinLabel();
 resizeCanvas();
 drawChart();
