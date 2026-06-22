@@ -133,26 +133,6 @@ body {
 .upload-zone__title { font-size: 1.1rem; margin-bottom: 0.4rem; }
 .upload-zone__hint { font-size: 0.8rem; color: var(--muted); }
 
-.extract-mode {
-  margin-top: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  text-align: left;
-  max-width: 420px;
-  margin-left: auto;
-  margin-right: auto;
-}
-.extract-mode__option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--text);
-  cursor: pointer;
-}
-.extract-mode__option input { margin-top: 0.15rem; accent-color: var(--accent); }
-
 .upload-zone__loading:not([hidden]) {
   display: flex;
   flex-direction: column;
@@ -292,36 +272,29 @@ body {
 .export-range__hint { margin-left: auto; font-size: 0.75rem; }
 
 .skyline-ctrl {
-  padding: 0.75rem 1.25rem 0.5rem;
-  border-top: 1px solid var(--border);
-}
-.skyline-ctrl__head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
 }
 .skyline-ctrl__label {
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  color: var(--text);
+  color: var(--muted);
+  white-space: nowrap;
 }
 .skyline-ctrl__value {
   font-family: "Orbitron", sans-serif;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   color: var(--accent2);
+  min-width: 3.2rem;
+  white-space: nowrap;
 }
 .skyline-ctrl__bar {
-  width: 100%;
+  width: 72px;
   height: 6px;
   accent-color: var(--accent2);
   cursor: pointer;
-}
-.skyline-ctrl__hint {
-  margin: 0.45rem 0 0;
-  font-size: 0.72rem;
-  color: var(--muted);
 }
 
 #chartCanvas {
@@ -361,8 +334,12 @@ body {
   width: 96px;
   display: flex;
   flex-direction: column;
-  pointer-events: none;
+  pointer-events: auto;
   z-index: 1;
+}
+
+.chart-wrap.has-range .chart-labels {
+  cursor: pointer;
 }
 
 .lane-label {
@@ -411,16 +388,6 @@ body {
 .btn--play svg { width: 22px; height: 22px; fill: currentColor; }
 .btn--play .icon-pause rect { fill: currentColor; }
 
-.btn--export {
-  flex-shrink: 0;
-  padding: 0.65rem 1rem;
-  background: rgba(0, 206, 201, 0.12);
-  color: var(--accent2);
-  border: 1px solid rgba(0, 206, 201, 0.3);
-}
-.btn--export svg { width: 18px; height: 18px; }
-.btn--export:hover { background: rgba(0, 206, 201, 0.22); }
-
 .progress-wrap {
   flex: 1;
   display: flex;
@@ -453,26 +420,52 @@ body {
   box-shadow: 0 0 8px var(--accent2);
 }
 
-.export-menu {
+.export-output {
+  border-top: 1px solid var(--border);
+}
+.export-output__toggle {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.75rem 1.25rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.export-output__toggle:hover { color: var(--text); }
+.export-output__chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+.export-output:not(.export-output--collapsed) .export-output__chevron {
+  transform: rotate(180deg);
+}
+.export-output--collapsed .export-output__body { display: none; }
+.export-output__body {
   padding: 0 1.25rem 1rem;
 }
-.export-menu button {
-  flex: 1;
-  padding: 0.6rem;
+.export-output__code {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  max-height: 120px;
+  overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.04);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.export-menu button:hover {
-  background: rgba(108, 92, 231, 0.15);
-  border-color: var(--accent);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--accent2);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .error {
@@ -488,6 +481,8 @@ body {
 @media (max-width: 600px) {
   .controls { flex-wrap: wrap; }
   .progress-wrap { order: 3; width: 100%; }
+  .skyline-ctrl { order: 4; width: 100%; justify-content: flex-end; }
+  .skyline-ctrl__bar { flex: 1; max-width: 160px; }
   .chart-hitline { left: 60px; }
   .track-info { flex-wrap: wrap; }
   .play-mode { width: 100%; }

@@ -38,20 +38,6 @@
         </div>
         <p class="upload-zone__title">拖放 MP3 到此处，或点击上传</p>
         <p class="upload-zone__hint">支持 MP3 / WAV / M4A · 最大 50MB</p>
-        <div class="extract-mode" id="extractMode">
-          <label class="extract-mode__option">
-            <input type="radio" name="extractMode" value="piano" checked />
-            钢琴（保留全部音符细节，多声部转 MIDI）
-          </label>
-          <label class="extract-mode__option">
-            <input type="radio" name="extractMode" value="instrumental" />
-            器乐主旋律（单声部，适合蜂鸣器）
-          </label>
-          <label class="extract-mode__option">
-            <input type="radio" name="extractMode" value="default" />
-            标准模式
-          </label>
-        </div>
       </div>
       <div class="upload-zone__loading" id="uploadLoading" hidden>
         <div class="spinner"></div>
@@ -81,24 +67,7 @@
         <span class="export-range__label">导出区间</span>
         <span class="export-range__time" id="exportRangeLabel">—</span>
         <button type="button" class="export-range__btn" id="exportRangeClear">清除选区</button>
-        <span class="export-range__hint">在音谱上拖拽框选 · 未选则导出全部</span>
-      </div>
-
-      <div class="skyline-ctrl" id="skylineCtrl" hidden>
-        <div class="skyline-ctrl__head">
-          <label class="skyline-ctrl__label" for="skylineMinBar">主旋律短音过滤</label>
-          <span class="skyline-ctrl__value" id="skylineMinValue">200 ms</span>
-        </div>
-        <input
-          type="range"
-          id="skylineMinBar"
-          class="skyline-ctrl__bar"
-          min="100"
-          max="3000"
-          step="10"
-          value="200"
-        />
-        <p class="skyline-ctrl__hint">MIDI 试听专用 · 短于此值的音会并入主旋律（100–3000 ms）</p>
+        <span class="export-range__hint">拖拽框选播放/导出区间 · 双击乐谱或点击左侧音名栏清除</span>
       </div>
 
       <div class="controls">
@@ -113,15 +82,38 @@
           <span class="time" id="timeTotal">0:00</span>
         </div>
 
-        <button class="btn btn--export" id="exportBtn" title="导出 H300 旋律">
-          <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-          导出旋律
-        </button>
+        <div class="skyline-ctrl" id="skylineCtrl">
+          <label class="skyline-ctrl__label" for="skylineMinBar">过滤粒度</label>
+          <span class="skyline-ctrl__value" id="skylineMinValue">200 ms</span>
+          <input
+            type="range"
+            id="skylineMinBar"
+            class="skyline-ctrl__bar"
+            min="0"
+            max="500"
+            step="20"
+            value="200"
+            title="MIDI 试听 · 短于此值的音会并入主旋律（0–500 ms，每格 20 ms）"
+          />
+        </div>
       </div>
 
-      <div class="export-menu" id="exportMenu" hidden>
-        <button data-format="h300">H300 十六进制（0x41 …）</button>
-        <button data-format="h300-detail">H300 注释文本</button>
+      <div class="export-output export-output--collapsed" id="exportOutput" hidden>
+        <button
+          type="button"
+          class="export-output__toggle"
+          id="exportOutputToggle"
+          aria-expanded="false"
+          aria-controls="exportOutputBody"
+        >
+          <span class="export-output__label">Hex</span>
+          <svg class="export-output__chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="export-output__body" id="exportOutputBody">
+          <pre class="export-output__code" id="exportHex"></pre>
+        </div>
       </div>
     </section>
 

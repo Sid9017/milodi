@@ -15,8 +15,9 @@ const progressBar = $("#progressBar");
 const timeCurrent = $("#timeCurrent");
 const timeTotal = $("#timeTotal");
 const trackName = $("#trackName");
-const exportBtn = $("#exportBtn");
-const exportMenu = $("#exportMenu");
+const exportOutput = $("#exportOutput");
+const exportOutputToggle = $("#exportOutputToggle");
+const exportHex = $("#exportHex");
 const errorMsg = $("#errorMsg");
 const stats = $("#stats");
 const statNotes = $("#statNotes");
@@ -28,7 +29,6 @@ const chartSelection = $("#chartSelection");
 const exportRangeEl = $("#exportRange");
 const exportRangeLabel = $("#exportRangeLabel");
 const exportRangeClear = $("#exportRangeClear");
-const skylineCtrl = $("#skylineCtrl");
 const skylineMinBar = $("#skylineMinBar");
 const skylineMinValue = $("#skylineMinValue");
 
@@ -54,6 +54,7 @@ let state = {
 };
 
 let dragSelect = null;
+let rangePlaybackComplete = false;
 
 const ctx = chartCanvas.getContext("2d");
 
@@ -110,9 +111,18 @@ function highestNoteMelodyForPlayback(notes) {
 }
 
 const SKYLINE_MERGE_GAP_MS = 50;
+const SKYLINE_MIN_STEP_MS = 20;
 
 function getSkylineMinMs() {
-  return Number(skylineMinBar?.value) || 200;
+  const v = Number(skylineMinBar?.value);
+  return Number.isFinite(v) ? v : 200;
+}
+
+function snapSkylineMinBar() {
+  if (!skylineMinBar) return;
+  const snapped =
+    Math.round(getSkylineMinMs() / SKYLINE_MIN_STEP_MS) * SKYLINE_MIN_STEP_MS;
+  skylineMinBar.value = String(Math.min(500, Math.max(0, snapped)));
 }
 
 function updateSkylineMinLabel() {
@@ -244,18 +254,28 @@ class MidiSynthPlayer {
     }
   }
 
-  _scheduleNotes(notes, fromMs) {
+  _scheduleNotes(notes, fromMs, endMs) {
     const ac = this._ensureCtx();
     const lead = 0.05;
     const base = ac.currentTime + lead;
-    const endMs = notes.reduce((m, n) => Math.max(m, n.start_ms + n.duration_ms), 0);
+    const melody = melodyForPlayback(notes);
+    const melodyEnd = melody.reduce(
+      (m, n) => Math.max(m, n.start_ms + n.duration_ms),
+      0,
+    );
+    const stopAt = endMs != null ? Math.min(endMs, melodyEnd) : melodyEnd;
 
-    for (const note of notes) {
-      if (note.start_ms + note.duration_ms <= fromMs) continue;
+    for (const note of melody) {
+      if (note.start_ms >= stopAt) continue;
 
-      const delayS = Math.max(0, (note.start_ms - fromMs) / 1000);
+      const playStart = Math.max(note.start_ms, fromMs);
+      const playEnd = Math.min(note.start_ms + note.duration_ms, stopAt);
+      const durMs = playEnd - playStart;
+      if (durMs <= 0) continue;
+
+      const delayS = Math.max(0, (playStart - fromMs) / 1000);
       const startAt = base + delayS;
-      const durS = note.duration_ms / 1000;
+      const durS = durMs / 1000;
 
       const osc = ac.createOscillator();
       const gain = ac.createGain();
@@ -277,7 +297,7 @@ class MidiSynthPlayer {
       this.nodes.push(gain);
     }
 
-    const remainMs = endMs - fromMs;
+    const remainMs = stopAt - fromMs;
     if (remainMs > 0) {
       this.endTimer = setTimeout(() => {
         if (this.playing) this.onEnded?.();
@@ -285,12 +305,12 @@ class MidiSynthPlayer {
     }
   }
 
-  play(notes, fromMs) {
+  play(notes, fromMs, endMs) {
     this._clearScheduled();
     this.offsetMs = fromMs ?? this.offsetMs;
     this.wallStart = performance.now();
     this.playing = true;
-    this._scheduleNotes(melodyForPlayback(notes), this.offsetMs);
+    this._scheduleNotes(notes, this.offsetMs, endMs ?? null);
   }
 
   pause() {
@@ -306,11 +326,11 @@ class MidiSynthPlayer {
     this._clearScheduled();
   }
 
-  seek(ms, notes) {
+  seek(ms, notes, endMs) {
     const wasPlaying = this.playing;
     this.pause();
     this.offsetMs = ms;
-    if (wasPlaying) this.play(notes, ms);
+    if (wasPlaying) this.play(notes, ms, endMs ?? null);
   }
 }
 
@@ -318,7 +338,13 @@ const midiPlayer = new MidiSynthPlayer();
 midiPlayer.onEnded = () => {
   state.playing = false;
   midiPlayer.playing = false;
-  midiPlayer.offsetMs = 0;
+  const bounds = getExportRangeBounds();
+  if (bounds) {
+    midiPlayer.offsetMs = bounds.endMs;
+    rangePlaybackComplete = true;
+  } else {
+    midiPlayer.offsetMs = 0;
+  }
   updatePlayIcon();
   stopAnim();
   updateProgress();
@@ -346,6 +372,130 @@ function getMelodyDurationMs() {
   return state.notes.reduce((m, n) => Math.max(m, n.start_ms + n.duration_ms), 0);
 }
 
+function getExportRangeBounds() {
+  const { startMs, endMs } = state.exportRange;
+  if (startMs == null || endMs == null) return null;
+  const lo = Math.min(startMs, endMs);
+  const hi = Math.max(startMs, endMs);
+  if (hi <= lo) return null;
+  return { startMs: lo, endMs: hi };
+}
+
+function getPlaybackEndLimit() {
+  return getExportRangeBounds()?.endMs ?? null;
+}
+
+function resolvePlaybackStart() {
+  const bounds = getExportRangeBounds();
+  if (!bounds) return getCurrentTimeMs();
+  const cur = getCurrentTimeMs();
+  if (rangePlaybackComplete || cur < bounds.startMs || cur >= bounds.endMs - 20) {
+    rangePlaybackComplete = false;
+    return bounds.startMs;
+  }
+  return cur;
+}
+
+function seekAudioToMs(ms) {
+  const t = clampToPlaybackRange(ms) / 1000;
+  if (audio.readyState < 1) {
+    return new Promise((resolve) => {
+      audio.addEventListener("loadedmetadata", () => seekAudioToMs(ms).then(resolve), {
+        once: true,
+      });
+    });
+  }
+  audio.pause();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const onSeeked = () => finish();
+    audio.addEventListener("seeked", onSeeked, { once: true });
+    try {
+      const maxT = audio.duration ? Math.max(0, audio.duration - 0.001) : t;
+      const target = Math.min(t, maxT);
+      if (!audio.ended && Math.abs(audio.currentTime - target) < 0.001) {
+        finish();
+        return;
+      }
+      audio.currentTime = target;
+    } catch {
+      finish();
+      return;
+    }
+    window.setTimeout(() => {
+      audio.removeEventListener("seeked", onSeeked);
+      finish();
+    }, 150);
+  });
+}
+
+function snapMp3ToMs(ms) {
+  const t = clampToPlaybackRange(ms) / 1000;
+  const maxT = audio.duration ? Math.max(0, audio.duration - 0.001) : t;
+  audio.currentTime = Math.min(t, maxT);
+}
+
+async function applyPlaybackPosition(ms) {
+  const t = clampToPlaybackRange(ms);
+  if (state.playMode === "midi") {
+    midiPlayer.seek(t, state.notes, getPlaybackEndLimit());
+  } else {
+    audio.pause();
+    await seekAudioToMs(t);
+  }
+  updateProgress();
+  drawChart();
+  return t;
+}
+
+function setCurrentTimeMs(ms) {
+  rangePlaybackComplete = false;
+  const t = clampToPlaybackRange(ms);
+  if (state.playMode === "midi") {
+    midiPlayer.seek(t, state.notes, getPlaybackEndLimit());
+  } else {
+    snapMp3ToMs(t);
+  }
+  updateProgress();
+  drawChart();
+}
+
+function clampToPlaybackRange(ms) {
+  const bounds = getExportRangeBounds();
+  const dur = getDurationMs();
+  let t = Math.max(0, Math.min(ms, dur));
+  if (bounds) {
+    t = Math.max(bounds.startMs, Math.min(t, bounds.endMs));
+  }
+  return t;
+}
+
+function syncRangeUi() {
+  const bounds = getExportRangeBounds();
+  chartWrap?.classList.toggle("has-range", !!bounds);
+}
+
+function checkPlaybackRangeEnd() {
+  const bounds = getExportRangeBounds();
+  if (!bounds || !state.playing) return;
+  if (getCurrentTimeMs() >= bounds.endMs - 15) {
+    rangePlaybackComplete = true;
+    pauseAll();
+    if (state.playMode === "midi") {
+      midiPlayer.offsetMs = bounds.endMs;
+    } else {
+      snapMp3ToMs(bounds.endMs);
+    }
+    updateProgress();
+    drawChart();
+  }
+}
+
 function getDurationMs() {
   if (state.playMode === "mp3" && audio.duration && isFinite(audio.duration)) {
     return audio.duration * 1000;
@@ -356,18 +506,6 @@ function getDurationMs() {
 function getCurrentTimeMs() {
   if (state.playMode === "midi") return midiPlayer.currentTimeMs;
   return audio.currentTime * 1000;
-}
-
-function setCurrentTimeMs(ms) {
-  const dur = getDurationMs();
-  const t = Math.max(0, Math.min(ms, dur));
-  if (state.playMode === "midi") {
-    midiPlayer.seek(t, state.notes);
-  } else {
-    audio.currentTime = t / 1000;
-  }
-  updateProgress();
-  drawChart();
 }
 
 function getMidiRange() {
@@ -404,13 +542,15 @@ function updateExportRangeLabel() {
   const { startMs, endMs } = state.exportRange;
   if (startMs == null || endMs == null || endMs <= startMs) {
     exportRangeLabel.textContent = "全部";
-    return;
+  } else {
+    exportRangeLabel.textContent = `${formatTime(startMs)} – ${formatTime(endMs)}`;
   }
-  exportRangeLabel.textContent = `${formatTime(startMs)} – ${formatTime(endMs)}`;
+  scheduleExportRefresh();
 }
 
 function updateSelectionOverlay() {
   const { startMs, endMs } = state.exportRange;
+  syncRangeUi();
   if (startMs == null || endMs == null || endMs <= startMs) {
     chartSelection.hidden = true;
     return;
@@ -426,9 +566,11 @@ function updateSelectionOverlay() {
 }
 
 function clearExportRange() {
+  rangePlaybackComplete = false;
   state.exportRange = { startMs: null, endMs: null };
   updateExportRangeLabel();
   updateSelectionOverlay();
+  updateProgress();
 }
 
 function buildLaneLabels() {
@@ -570,14 +712,18 @@ function animLoop() {
   drawChart();
   if (state.playing) {
     updateProgress();
-    if (
+    if (getExportRangeBounds()) {
+      checkPlaybackRangeEnd();
+    } else if (
       state.playMode === "midi" &&
-      getCurrentTimeMs() >= getMelodyDurationMs()
+      getCurrentTimeMs() >= getMelodyDurationMs() - 15
     ) {
       midiPlayer.onEnded?.();
       return;
     }
-    state.animId = requestAnimationFrame(animLoop);
+    if (state.playing) {
+      state.animId = requestAnimationFrame(animLoop);
+    }
   }
 }
 
@@ -603,8 +749,7 @@ async function handleFile(file) {
 
   const form = new FormData();
   form.append("file", file);
-  const modeInput = document.querySelector('input[name="extractMode"]:checked');
-  form.append("mode", modeInput ? modeInput.value : "piano");
+  form.append("mode", "piano");
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
@@ -645,9 +790,10 @@ async function handleFile(file) {
     playerPanel.hidden = false;
     stats.hidden = false;
     exportRangeEl.hidden = false;
-    skylineCtrl.hidden = false;
+    collapseExportOutput();
     updateSkylineMinLabel();
     clearExportRange();
+    scheduleExportRefresh();
 
     resizeCanvas();
     drawChart();
@@ -681,17 +827,22 @@ function pauseAll() {
 }
 
 async function playAll() {
+  const bounds = getExportRangeBounds();
+  const start = bounds ? resolvePlaybackStart() : getCurrentTimeMs();
+
   if (state.playMode === "midi") {
     if (!state.notes.length) {
       showError("无旋律音符，无法 MIDI 播放");
       return;
     }
-    midiPlayer.play(state.notes, midiPlayer.currentTimeMs);
+    const t = bounds ? await applyPlaybackPosition(start) : start;
+    midiPlayer.play(state.notes, t, getPlaybackEndLimit());
     state.playing = true;
     updatePlayIcon();
     startAnim();
     updateProgress();
   } else {
+    await seekAudioToMs(start);
     try {
       await audio.play();
     } catch (err) {
@@ -716,8 +867,17 @@ function updatePlayIcon() {
 }
 
 function updateProgress() {
-  const dur = getDurationMs();
+  const bounds = getExportRangeBounds();
   const cur = getCurrentTimeMs();
+  if (bounds) {
+    const span = bounds.endMs - bounds.startMs;
+    const rel = Math.max(0, Math.min(cur - bounds.startMs, span));
+    progressBar.value = span ? (rel / span) * 1000 : 0;
+    timeCurrent.textContent = formatTime(rel);
+    timeTotal.textContent = formatTime(span);
+    return;
+  }
+  const dur = getDurationMs();
   progressBar.value = dur ? (cur / dur) * 1000 : 0;
   timeCurrent.textContent = formatTime(cur);
   timeTotal.textContent = formatTime(dur);
@@ -734,9 +894,9 @@ function switchPlayMode(mode) {
   });
 
   if (mode === "midi") {
-    midiPlayer.offsetMs = Math.min(cur, getMelodyDurationMs());
+    midiPlayer.offsetMs = clampToPlaybackRange(cur);
   } else if (audio.duration) {
-    audio.currentTime = Math.min(cur / 1000, audio.duration);
+    audio.currentTime = clampToPlaybackRange(cur) / 1000;
   }
   updateProgress();
   drawChart();
@@ -758,6 +918,7 @@ audio.addEventListener("pause", () => {
 
 audio.addEventListener("ended", () => {
   if (state.playMode !== "mp3") return;
+  if (getExportRangeBounds()) rangePlaybackComplete = true;
   state.playing = false;
   updatePlayIcon();
   stopAnim();
@@ -770,13 +931,24 @@ audio.addEventListener("loadedmetadata", () => {
 });
 
 audio.addEventListener("timeupdate", () => {
-  if (state.playMode === "mp3" && !state.playing) updateProgress();
+  if (state.playMode !== "mp3") return;
+  if (state.playing) checkPlaybackRangeEnd();
+  if (!state.playing) updateProgress();
 });
 
-progressBar.addEventListener("input", () => {
+progressBar.addEventListener("input", async () => {
+  rangePlaybackComplete = false;
+  const bounds = getExportRangeBounds();
+  if (bounds) {
+    const span = bounds.endMs - bounds.startMs;
+    await applyPlaybackPosition(
+      bounds.startMs + (progressBar.value / 1000) * span,
+    );
+    return;
+  }
   const dur = getDurationMs();
   if (!dur) return;
-  setCurrentTimeMs((progressBar.value / 1000) * dur);
+  await applyPlaybackPosition((progressBar.value / 1000) * dur);
 });
 
 playBtn.addEventListener("click", togglePlay);
@@ -786,57 +958,84 @@ playModeEl.addEventListener("click", (e) => {
   if (btn) switchPlayMode(btn.dataset.mode);
 });
 
-/* ── 导出 ── */
+/* ── 导出预览 ── */
 
-exportBtn.addEventListener("click", () => {
-  exportMenu.hidden = !exportMenu.hidden;
-});
+let exportRefreshTimer = 0;
 
-exportMenu.addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-format]");
-  if (!btn) return;
-  exportMenu.hidden = true;
-
+function buildExportPayload() {
+  const payload = { notes: state.notes };
   const { startMs, endMs } = state.exportRange;
-  const payload = {
-    notes: state.notes,
-    format: btn.dataset.format,
-  };
   if (startMs != null && endMs != null && endMs > startMs) {
     payload.startMs = Math.round(startMs);
     payload.endMs = Math.round(endMs);
   }
+  return payload;
+}
+
+async function fetchExportText(format) {
+  const res = await fetch("/api/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...buildExportPayload(), format }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "导出失败");
+  }
+  return res.text();
+}
+
+function scheduleExportRefresh() {
+  if (!state.notes.length) return;
+  clearTimeout(exportRefreshTimer);
+  exportRefreshTimer = setTimeout(refreshExportOutput, 200);
+}
+
+function isExportExpanded() {
+  return exportOutput && !exportOutput.classList.contains("export-output--collapsed");
+}
+
+function collapseExportOutput() {
+  if (!exportOutput) return;
+  exportOutput.classList.add("export-output--collapsed");
+  exportOutputToggle?.setAttribute("aria-expanded", "false");
+}
+
+async function refreshExportOutput() {
+  if (!state.notes.length) {
+    exportOutput.hidden = true;
+    return;
+  }
+
+  exportOutput.hidden = false;
+  if (isExportExpanded()) {
+    exportHex.textContent = "加载中…";
+  }
 
   try {
-    const res = await fetch("/api/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "导出失败");
-    }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = btn.dataset.format === "h300-detail" ? "melody.txt" : "melody.hex";
-    a.click();
-    URL.revokeObjectURL(url);
+    exportHex.textContent = await fetchExportText("h300");
   } catch (err) {
+    exportHex.textContent = `导出失败: ${err.message}`;
     showError(err.message);
+  }
+}
+
+exportOutputToggle.addEventListener("click", () => {
+  const collapsed = exportOutput.classList.toggle("export-output--collapsed");
+  exportOutputToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (!collapsed && !exportHex.textContent) {
+    refreshExportOutput();
   }
 });
 
 exportRangeClear.addEventListener("click", clearExportRange);
 
 skylineMinBar.addEventListener("input", () => {
+  snapSkylineMinBar();
   updateSkylineMinLabel();
   if (state.playMode === "midi" && state.playing && state.notes.length) {
     const t = getCurrentTimeMs();
-    midiPlayer.play(state.notes, t);
+    midiPlayer.play(state.notes, t, getPlaybackEndLimit());
   }
 });
 
@@ -866,13 +1065,39 @@ window.addEventListener("mousemove", (e) => {
   updateSelectionOverlay();
 });
 
-window.addEventListener("mouseup", () => {
+function finalizeExportRange() {
+  const bounds = getExportRangeBounds();
+  if (!bounds || bounds.endMs - bounds.startMs < 80) return false;
+  rangePlaybackComplete = false;
+  state.exportRange = bounds;
+  updateExportRangeLabel();
+  updateSelectionOverlay();
+  return true;
+}
+
+window.addEventListener("mouseup", async () => {
   if (!dragSelect) return;
   dragSelect = null;
-  const { startMs, endMs } = state.exportRange;
-  if (startMs != null && endMs != null && endMs - startMs < 80) {
+  if (!finalizeExportRange()) {
     clearExportRange();
+    return;
   }
+  pauseAll();
+  await applyPlaybackPosition(getExportRangeBounds().startMs);
+});
+
+chartCanvas.addEventListener("dblclick", (e) => {
+  if (playerPanel.hidden) return;
+  e.preventDefault();
+  dragSelect = null;
+  if (!getExportRangeBounds()) return;
+  clearExportRange();
+});
+
+laneLabels.addEventListener("click", () => {
+  if (playerPanel.hidden || !getExportRangeBounds()) return;
+  dragSelect = null;
+  clearExportRange();
 });
 
 /* ── 上传交互 ── */
