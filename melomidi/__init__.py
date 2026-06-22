@@ -1,3 +1,5 @@
-"""Extract melody from audio and play buzzer previews."""
+"""从音频提取主旋律并转换为蜂鸣器音符数组。"""
 
-__version__ = "0.1.0"
+from melomidi.extract import PIANO_CONFIG, INSTRUMENTAL_CONFIG, ExtractConfig, extract_melody
+
+__all__ = ["ExtractConfig", "INSTRUMENTAL_CONFIG", "PIANO_CONFIG", "extract_melody"]

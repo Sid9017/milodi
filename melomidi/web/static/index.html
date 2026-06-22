@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Melomidi — 旋律提取</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow--left"></div>
+  <div class="bg-glow bg-glow--right"></div>
+
+  <main class="app">
+    <header class="header">
+      <div class="logo">
+        <span class="logo__icon">♪</span>
+        <div>
+          <h1>Melomidi</h1>
+          <p>上传 MP3 · 可视化音谱 · 导出旋律</p>
+        </div>
+      </div>
+      <div class="stats" id="stats" hidden>
+        <div class="stat"><span id="statNotes">0</span><label>音符</label></div>
+        <div class="stat"><span id="statDuration">0:00</span><label>时长</label></div>
+      </div>
+    </header>
+
+    <!-- 上传区 -->
+    <section class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden />
+      <div class="upload-zone__inner">
+        <div class="upload-zone__icon">
+          <svg viewBox="0 0 48 48" fill="none"><path d="M24 6v24M14 20l10-10 10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 36v4a2 2 0 002 2h28a2 2 0 002-2v-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
+        <p class="upload-zone__title">拖放 MP3 到此处，或点击上传</p>
+        <p class="upload-zone__hint">支持 MP3 / WAV / M4A · 最大 50MB</p>
+        <div class="extract-mode" id="extractMode">
+          <label class="extract-mode__option">
+            <input type="radio" name="extractMode" value="piano" checked />
+            钢琴（保留全部音符细节，多声部转 MIDI）
+          </label>
+          <label class="extract-mode__option">
+            <input type="radio" name="extractMode" value="instrumental" />
+            器乐主旋律（单声部，适合蜂鸣器）
+          </label>
+          <label class="extract-mode__option">
+            <input type="radio" name="extractMode" value="default" />
+            标准模式
+          </label>
+        </div>
+      </div>
+      <div class="upload-zone__loading" id="uploadLoading" hidden>
+        <div class="spinner"></div>
+        <p>正在分析旋律…</p>
+        <p class="upload-zone__hint">首次运行需加载 AI 模型，请稍候</p>
+      </div>
+    </section>
+
+    <!-- 播放器 + 音谱 -->
+    <section class="player-panel" id="playerPanel" hidden>
+      <div class="track-info">
+        <span class="track-info__name" id="trackName">—</span>
+        <div class="play-mode" id="playMode">
+          <button class="play-mode__btn play-mode__btn--active" data-mode="mp3" type="button">原音 MP3</button>
+          <button class="play-mode__btn" data-mode="midi" type="button">MIDI 旋律</button>
+        </div>
+      </div>
+
+      <div class="chart-wrap" id="chartWrap">
+        <canvas id="chartCanvas"></canvas>
+        <div class="chart-hitline"></div>
+        <div class="chart-labels" id="laneLabels"></div>
+        <div class="chart-selection" id="chartSelection" hidden></div>
+      </div>
+
+      <div class="export-range" id="exportRange" hidden>
+        <span class="export-range__label">导出区间</span>
+        <span class="export-range__time" id="exportRangeLabel">—</span>
+        <button type="button" class="export-range__btn" id="exportRangeClear">清除选区</button>
+        <span class="export-range__hint">在音谱上拖拽框选 · 未选则导出全部</span>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn--play" id="playBtn" title="播放 / 暂停">
+          <svg class="icon-play" viewBox="0 0 24 24"><polygon points="6,4 20,12 6,20"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" hidden><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>
+        </button>
+
+        <div class="progress-wrap">
+          <span class="time" id="timeCurrent">0:00</span>
+          <input type="range" class="progress" id="progressBar" min="0" max="1000" value="0" />
+          <span class="time" id="timeTotal">0:00</span>
+        </div>
+
+        <button class="btn btn--export" id="exportBtn" title="导出 H300 旋律">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+          导出旋律
+        </button>
+      </div>
+
+      <div class="export-menu" id="exportMenu" hidden>
+        <button data-format="h300">H300 十六进制（0x41 …）</button>
+        <button data-format="h300-detail">H300 注释文本</button>
+      </div>
+    </section>
+
+    <p class="error" id="errorMsg" hidden></p>
+  </main>
+
+  <audio id="audio" preload="auto"></audio>
+  <script src="/js/app.js"></script>
+</body>
+</html>

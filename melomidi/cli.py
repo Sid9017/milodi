@@ -1,161 +1,146 @@
-#!/usr/bin/env python3
-"""CLI: MP3/WAV -> buzzer melody via Basic Pitch."""
+"""命令行入口。"""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
-from melomidi.export import format_arduino, format_text
-from melomidi.pipeline import audio_to_buzzer
-from melomidi.play import play_buzzer_sequence
+from melomidi.export import write_export
+from melomidi.extract import (
+    DEFAULT_CONFIG,
+    INSTRUMENTAL_CONFIG,
+    PIANO_CONFIG,
+    ExtractConfig,
+    extract_melody,
+)
 
 
-def _add_convert_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("input", type=Path, help="Input audio file (mp3, wav, etc.)")
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        help="Write Arduino arrays to this file (prints to stdout if omitted)",
-    )
-    parser.add_argument(
-        "--format",
-        choices=("text", "arduino"),
-        default="text",
-        help="Output format (default: text)",
-    )
-    parser.add_argument(
-        "--grid-ms",
-        type=int,
-        default=125,
-        help="Quantize note lengths to this grid in ms (default: 125)",
-    )
-    parser.add_argument(
-        "--frame-ms",
-        type=int,
-        default=50,
-        help="Time resolution for monophonic extraction (default: 50)",
-    )
-    parser.add_argument(
-        "--min-note-ms",
-        type=int,
-        default=125,
-        help="Drop notes shorter than this (default: 125)",
-    )
-    parser.add_argument(
-        "--hz",
-        action="store_true",
-        help="Use raw Hz values in Arduino export instead of NOTE_* names",
-    )
+def _print_table(notes) -> None:
+    print(f"{'#':>4}  {'start':>6}  {'MIDI':>5}  {'vel':>3}  {'ms':>5}  Name")
+    for i, n in enumerate(notes, 1):
+        vel = getattr(n, "velocity", 100)
+        print(
+            f"{i:>4}  {n.start_ms:>6}  {n.midi:>5}  {vel:>3}  {n.duration_ms:>5}  {n.name}"
+        )
 
 
-def _convert_kwargs(args: argparse.Namespace) -> dict:
-    return {
-        "grid_ms": args.grid_ms,
-        "min_note_ms": args.min_note_ms,
-        "frame_ms": args.frame_ms,
-    }
-
-
-def _load_buzzer_notes(args: argparse.Namespace):
-    if not args.input.exists():
-        print(f"error: file not found: {args.input}", file=sys.stderr)
-        return None
-
-    print(f"Analyzing {args.input} with Basic Pitch...", file=sys.stderr)
-    notes = audio_to_buzzer(args.input, **_convert_kwargs(args))
-    print(f"Converted to {len(notes)} buzzer notes.", file=sys.stderr)
-    return notes
-
-
-def convert_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Extract melody from audio and convert to buzzer note arrays.",
-    )
-    _add_convert_args(parser)
-    parser.add_argument(
-        "--play",
-        action="store_true",
-        help="Play buzzer preview after conversion",
-    )
-    parser.add_argument(
-        "--gap-ms",
-        type=int,
-        default=20,
-        help="Silence gap between notes when playing (default: 20)",
-    )
-    args = parser.parse_args(argv)
-
-    notes = _load_buzzer_notes(args)
-    if notes is None:
-        return 1
-
-    if args.format == "arduino":
-        output = format_arduino(notes, use_note_names=not args.hz)
+def _resolve_config(args: argparse.Namespace) -> ExtractConfig:
+    if args.piano:
+        cfg = PIANO_CONFIG
+    elif args.instrumental:
+        cfg = INSTRUMENTAL_CONFIG
     else:
-        output = format_text(notes)
-
-    if args.output:
-        args.output.write_text(output, encoding="utf-8")
-        print(f"Wrote {args.output}", file=sys.stderr)
-    elif not args.play:
-        print(output)
-
-    if args.play:
-        print("Playing buzzer preview...", file=sys.stderr)
-        play_buzzer_sequence(notes, gap_ms=args.gap_ms)
-
-    return 0
-
-
-def play_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Convert audio to buzzer melody and play it.",
-    )
-    _add_convert_args(parser)
-    parser.set_defaults(format="text", output=None, hz=False)
-    parser.add_argument(
-        "--gap-ms",
-        type=int,
-        default=20,
-        help="Silence gap between notes (default: 20)",
-    )
-    parser.add_argument(
-        "--loop",
-        type=int,
-        default=1,
-        help="Number of times to play the melody (default: 1)",
-    )
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="Do not print note table",
-    )
-    args = parser.parse_args(argv)
-
-    notes = _load_buzzer_notes(args)
-    if notes is None:
-        return 1
-    if not notes:
-        print("error: no playable notes detected", file=sys.stderr)
-        return 1
-
-    if not args.quiet:
-        print(format_text(notes))
-
-    print("Playing buzzer preview...", file=sys.stderr)
-    play_buzzer_sequence(notes, gap_ms=args.gap_ms, loop=args.loop)
-    return 0
+        cfg = ExtractConfig(
+            onset_threshold=args.onset_threshold,
+            frame_threshold=args.frame_threshold,
+            minimum_note_length=args.min_note_ms,
+            minimum_frequency=args.min_freq or None,
+            maximum_frequency=args.max_freq or None,
+            melodia_trick=not args.no_melodia,
+        )
+    if args.no_melodia:
+        cfg = ExtractConfig(**{**asdict(cfg), "melodia_trick": False})
+    return cfg
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = list(argv if argv is not None else sys.argv[1:])
-    if argv and argv[0] == "play":
-        return play_main(argv[1:])
-    return convert_main(argv)
+    parser = argparse.ArgumentParser(description="从音频提取旋律 / 转录钢琴 MIDI")
+    parser.add_argument("audio", nargs="?", help="音频文件路径")
+    parser.add_argument("--play", action="store_true", help="播放蜂鸣器预览")
+    parser.add_argument(
+        "--format",
+        choices=["text", "json", "midi", "h300", "h300-detail"],
+        default="text",
+    )
+    parser.add_argument("-o", "--output", help="输出文件路径")
+    parser.add_argument("--start-ms", type=int, default=0, help="导出区间起点 (ms)")
+    parser.add_argument("--end-ms", type=int, default=None, help="导出区间终点 (ms)")
+    parser.add_argument("play_target", nargs="?", help="melomidi play <file>")
+    parser.add_argument(
+        "--onset-threshold", type=float, default=0.55, help="Basic Pitch onset 阈值 (0–1)"
+    )
+    parser.add_argument(
+        "--frame-threshold", type=float, default=0.38, help="Basic Pitch frame 阈值 (0–1)"
+    )
+    parser.add_argument(
+        "--min-note-ms", type=float, default=180.0, help="最短音符长度 (ms)"
+    )
+    parser.add_argument(
+        "--min-freq", type=float, default=150.0, help="最低频率 (Hz)，0 表示不限制"
+    )
+    parser.add_argument(
+        "--max-freq", type=float, default=1200.0, help="最高频率 (Hz)，0 表示不限制"
+    )
+    parser.add_argument(
+        "--no-melodia", action="store_true", help="关闭 Basic Pitch melodia_trick"
+    )
+    parser.add_argument(
+        "--piano",
+        action="store_true",
+        help="钢琴模式：保留全部音符细节，多声部转 MIDI（推荐钢琴曲）",
+    )
+    parser.add_argument(
+        "--instrumental",
+        action="store_true",
+        help="纯器乐主旋律：HPSS 预处理 + 单声部最高音",
+    )
+    args = parser.parse_args(argv)
+
+    audio = args.audio
+    if args.play_target and not audio:
+        audio = args.play_target
+
+    if not audio:
+        parser.print_help()
+        return 1
+
+    if args.piano and args.instrumental:
+        print("请只选择 --piano 或 --instrumental 之一", file=sys.stderr)
+        return 1
+
+    cfg = _resolve_config(args)
+    if not args.piano and not args.instrumental:
+        # 未指定模式时，默认钢琴高保真转录
+        cfg = PIANO_CONFIG
+
+    notes = extract_melody(audio, cfg)
+
+    if args.format == "text" and not args.output:
+        _print_table(notes)
+    elif args.output:
+        fmt = args.format if args.format != "text" else "json"
+        out = Path(args.output)
+        if out.suffix.lower() in {".mid", ".midi"}:
+            fmt = "midi"
+        elif out.suffix.lower() == ".hex":
+            fmt = "h300"
+        write_export(
+            notes,
+            out,
+            fmt=fmt,
+            start_ms=args.start_ms,
+            end_ms=args.end_ms,
+        )
+        print(f"已写入 {out}", file=sys.stderr)
+    elif args.format in {"h300", "h300-detail"}:
+        from melomidi.export import to_h300_detail, to_h300_hex
+
+        if args.format == "h300-detail":
+            print(to_h300_detail(notes, start_ms=args.start_ms, end_ms=args.end_ms))
+        else:
+            print(to_h300_hex(notes, start_ms=args.start_ms, end_ms=args.end_ms))
+
+    if args.play or (args.play_target and audio):
+        try:
+            from melomidi.playback import play_melody
+
+            play_melody(notes)
+        except ImportError:
+            print("播放需要 sounddevice", file=sys.stderr)
+
+    return 0
 
 
 if __name__ == "__main__":
