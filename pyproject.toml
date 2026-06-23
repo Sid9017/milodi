@@ -28,3 +28,6 @@ web = ["flask>=3.0"]
 package-dir = {"milodi" = "."}
 
 packages = ["milodi", "milodi.web"]
+
+[tool.setuptools.package-data]
+"milodi.web" = ["static/**/*"]

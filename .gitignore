@@ -45,3 +45,7 @@ htmlcov/
 # Logs and local artifacts
 *.log
 /tmp/
+
+# macOS icon build artifacts
+packaging/icon/icon.iconset/
+packaging/icon/milodi-square.png

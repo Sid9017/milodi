@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.serving import make_server
 
 from milodi.export import to_h300_detail, to_h300_hex
 from milodi.extract import (
@@ -23,6 +26,14 @@ app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 _uploads: dict[str, Path] = {}
+_server = None
+_server_lock = threading.Lock()
+
+
+def request_shutdown() -> None:
+    with _server_lock:
+        if _server is not None:
+            _server.shutdown()
 
 
 def _config_for_mode(mode: str):
@@ -128,9 +139,48 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="启动 Milodi Web UI")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="启动后自动打开浏览器",
+    )
     args = parser.parse_args()
-    print(f"Milodi Web UI: http://{args.host}:{args.port}")
-    app.run(host=args.host, port=args.port, debug=False)
+    serve(
+        host=args.host,
+        port=args.port,
+        open_browser=args.open_browser,
+        block=True,
+    )
+
+
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    *,
+    open_browser: bool = False,
+    block: bool = True,
+    on_ready: Callable[[str], None] | None = None,
+) -> None:
+    """启动 Web 服务。block=True 时在调用线程阻塞直到服务停止。"""
+    global _server
+    url = f"http://{host}:{port}"
+    print(f"Milodi Web UI: {url}", flush=True)
+
+    with _server_lock:
+        _server = make_server(host, port, app, threaded=True)
+
+    if on_ready is not None:
+        on_ready(url)
+    elif open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+
+    try:
+        _server.serve_forever()
+    finally:
+        with _server_lock:
+            _server = None
 
 
 if __name__ == "__main__":
